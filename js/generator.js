@@ -72,22 +72,12 @@ export function renderGenerator(container) {
           '<span class="filename" id="gen-detected-name"></span>' +
         '</div>' +
         '<div class="gen-cdn-tags">' +
-          '<span class="gen-cdn-tag primary">Primary: Videy</span>' +
-          '<span class="gen-cdn-tag fallback">Fallback: Slicedrive</span>' +
+          '<span class="gen-cdn-tag primary">Primary: Slicedrive</span>' +
+          '<span class="gen-cdn-tag fallback">Videy</span>' +
+          '<span class="gen-cdn-tag fallback">Aceimg</span>' +
+          '<span class="gen-cdn-tag fallback">Xxfollow</span>' +
+          '<span class="gen-cdn-tag fallback">Xfree</span>' +
         '</div>' +
-      '</div>' +
-    '</div>' +
-    '<div class="gen-section gen-output" id="gen-output">' +
-      '<div class="gen-card">' +
-        '<div class="gen-card-title"><i class="fa-solid fa-arrow-up-right-from-square green"></i> Player Link</div>' +
-        '<div class="gen-label">DIRECT URL</div>' +
-        '<div class="gen-copy-row">' +
-          '<input type="text" id="gen-player-url" readonly>' +
-          '<button class="btn-copy" data-copy-target="gen-player-url"><i class="fa-regular fa-copy"></i> Copy</button>' +
-        '</div>' +
-      '</div>' +
-      '<div class="gen-card">' +
-        '<div class="gen-card-title"><i class="fa-solid fa-shuffle blue"></i> Shortlink Player</div>' +
         '<div class="gen-opt-row">' +
           '<label class="gen-ext-toggle">' +
             '<input type="checkbox" id="gen-ext-check" checked>' +
@@ -100,25 +90,12 @@ export function renderGenerator(container) {
             }).join('') +
           '</div>' +
         '</div>' +
-        '<div class="gen-separator"></div>' +
-        '<div class="gen-label" id="gen-label-short">SHORTLINK PLAYER</div>' +
-        '<div class="gen-copy-row">' +
-          '<input type="text" id="gen-short-url" readonly>' +
-          '<button class="btn-copy" data-copy-target="gen-short-url"><i class="fa-regular fa-copy"></i> Copy</button>' +
-        '</div>' +
       '</div>' +
-      '<div class="gen-card gen-smartlink-card">' +
-        '<div class="gen-card-title"><i class="fa-solid fa-route" style="color:var(--yellow)"></i> Shortlink Smartlink</div>' +
-        '<div class="gen-smartlink-info">' +
-          '<span><i class="fa-solid fa-flag"></i> ID → Shopee</span>' +
-          '<span><i class="fa-solid fa-globe"></i> Other → OMG</span>' +
-        '</div>' +
-        '<div class="gen-separator"></div>' +
-        '<div class="gen-label" id="gen-label-smart">SHORTLINK SMARTLINK</div>' +
-        '<div class="gen-copy-row">' +
-          '<input type="text" id="gen-smart-url" readonly>' +
-          '<button class="btn-copy" data-copy-target="gen-smart-url"><i class="fa-regular fa-copy"></i> Copy</button>' +
-        '</div>' +
+    '</div>' +
+    '<div class="gen-section gen-output" id="gen-output">' +
+      '<div class="gen-card">' +
+        '<div class="gen-short-results" id="gen-short-results"></div>' +
+        '<button class="btn-copy-all" id="btn-copy-all"><i class="fa-regular fa-copy"></i> Copy All</button>' +
       '</div>' +
     '</div>' +
     '<div class="gen-section" id="gen-history-section">' +
@@ -130,14 +107,11 @@ export function renderGenerator(container) {
   var detectedBar = document.getElementById('gen-detected');
   var detectedName = document.getElementById('gen-detected-name');
   var outputSection = document.getElementById('gen-output');
-  var playerUrlInput = document.getElementById('gen-player-url');
-  var shortUrlInput = document.getElementById('gen-short-url');
-  var smartUrlInput = document.getElementById('gen-smart-url');
+  var shortResults = document.getElementById('gen-short-results');
+  var copyAllBtn = document.getElementById('btn-copy-all');
   var extButtonsContainer = document.getElementById('gen-ext-buttons');
   var extCheck = document.getElementById('gen-ext-check');
   var historySection = document.getElementById('gen-history-section');
-  var labelShort = document.getElementById('gen-label-short');
-  var labelSmart = document.getElementById('gen-label-smart');
 
   var EMOJIS = ['\u{1F449}','\u27A1\uFE0F','\u{1F517}','\u25B6\uFE0F','\u{1F3A5}','\u{1F3AC}','\u{1F4F9}','\u{1F4FA}','\u{1F39E}\uFE0F','\u{1F310}','\u{1F4F2}','\u{1F4F1}','\u{1F680}','\u2728','\u{1F4A5}','\u{1F525}','\u{1F3AF}','\u{1F534}','\u{1F519}','\u{1F4AB}','\u2611\uFE0F','\u2705','\u{1F51E}','\u{1F4AF}','\u{1F440}'];
   function pickEmoji() { return EMOJIS[Math.floor(Math.random() * EMOJIS.length)]; }
@@ -150,9 +124,15 @@ export function renderGenerator(container) {
     return protocol + '://' + shortDomain + '/' + shortId + ext;
   }
 
-  function refreshUrls() {
-    shortUrlInput.value = getShortUrl(currentShortId);
-    smartUrlInput.value = getShortUrl(currentSmartId);
+  function refreshShortResults() {
+    if (!shortResults || !currentShortId || !currentSmartId) return;
+    var shortUrl = getShortUrl(currentShortId);
+    var smartUrl = getShortUrl(currentSmartId);
+    var e1 = pickEmoji();
+    var e2 = pickEmoji();
+    shortResults.innerHTML =
+      '<div class="gen-short-line" data-url="' + escapeHtml(shortUrl) + '">' + e1 + '  ' + escapeHtml(shortUrl) + '</div>' +
+      '<div class="gen-short-line" data-url="' + escapeHtml(smartUrl) + '">' + e2 + '  ' + escapeHtml(smartUrl) + '</div>';
   }
 
   function setExtension(ext) {
@@ -161,7 +141,7 @@ export function renderGenerator(container) {
     extBtns.forEach(function(btn) {
       btn.classList.toggle('active', btn.getAttribute('data-ext') === ext);
     });
-    refreshUrls();
+    refreshShortResults();
   }
 
   urlInput.addEventListener('input', function() {
@@ -194,20 +174,27 @@ export function renderGenerator(container) {
   extCheck.addEventListener('change', function() {
     useExt = extCheck.checked;
     extButtonsContainer.classList.toggle('disabled', !useExt);
-    refreshUrls();
+    refreshShortResults();
   });
 
-  /* Copy buttons */
+  /* Copy: klik per-baris atau Copy All */
   container.addEventListener('click', function(e) {
-    var btn = e.target.closest('.btn-copy[data-copy-target]');
-    if (!btn) return;
-    e.preventDefault();
-    e.stopPropagation();
-    var targetId = btn.getAttribute('data-copy-target');
-    var input = document.getElementById(targetId);
-    var textToCopy = input ? input.value : '';
-    if (textToCopy) {
-      copyText(textToCopy, btn);
+    /* Klik baris individual */
+    var line = e.target.closest('.gen-short-line');
+    if (line) {
+      var url = line.getAttribute('data-url');
+      if (url) copyText(url, line);
+      return;
+    }
+    /* Tombol Copy All */
+    if (e.target.closest('#btn-copy-all')) {
+      var lines = shortResults.querySelectorAll('.gen-short-line');
+      var allText = [];
+      lines.forEach(function(l) { allText.push(l.textContent.trim()); });
+      if (allText.length > 0) {
+        copyText(allText.join('\n'), copyAllBtn);
+      }
+      return;
     }
   });
 
@@ -246,19 +233,22 @@ export function renderGenerator(container) {
     );
     ShortStore.set(currentSmartId, smartKValue);
 
-    /* Player Link (pakai random filename + random domain + ?k=) */
+    /* Player Link (pakai random filename + random domain + ?k=) — untuk DB & history */
     var fakeName = generateRandomFilename();
     var playerDomain = getRandomDomain(domains);
     var playerUrl = protocol + '://' + playerDomain + '/' + fakeName + '?k=' + currentKValue;
-    playerUrlInput.value = playerUrl;
 
     /* Shortlink Player */
     var shortUrl = getShortUrl(currentShortId);
-    shortUrlInput.value = shortUrl;
-
     /* Shortlink Smartlink */
     var smartUrl = getShortUrl(currentSmartId);
-    smartUrlInput.value = smartUrl;
+
+    /* Tampilkan hasil: 1 kolom, 2 baris (emoji + URL) */
+    var e1 = pickEmoji();
+    var e2 = pickEmoji();
+    shortResults.innerHTML =
+      '<div class="gen-short-line" data-url="' + escapeHtml(shortUrl) + '">' + e1 + '  ' + escapeHtml(shortUrl) + '</div>' +
+      '<div class="gen-short-line" data-url="' + escapeHtml(smartUrl) + '">' + e2 + '  ' + escapeHtml(smartUrl) + '</div>';
 
     /* Simpan ke Database */
     if (isDbReady()) {
@@ -270,10 +260,6 @@ export function renderGenerator(container) {
         showToast('Gagal simpan ke DB, shortlink hanya berlaku di browser ini', true);
       }
     }
-
-    /* Random emoji di label */
-    if (labelShort) labelShort.textContent = pickEmoji() + ' SHORTLINK PLAYER';
-    if (labelSmart) labelSmart.textContent = pickEmoji() + ' SHORTLINK SMARTLINK';
 
     outputSection.classList.add('visible');
 
