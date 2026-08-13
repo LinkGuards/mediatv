@@ -1,0 +1,17 @@
+{
+  "type": "cpanel",
+  "apiUrl": "https://vidy.biz.id/api-proxy.php",
+  "apiKey": "",
+  "domains": [
+    "mediatv.biz.id",
+    "tv.mediatv.biz.id",
+    "cdn.mediatv.biz.id",
+    "go.mediatv.biz.id",
+    "get.mediatv.biz.id",
+    "shortv.biz.id",
+    "tv.shortv.biz.id",
+    "cdn.shortv.biz.id",
+    "go.shortv.biz.id",
+    "get.shortv.biz.id"
+  ]
+}
