@@ -132,7 +132,6 @@ export function renderGenerator(container) {
     var e2 = pickEmoji();
     shortResults.innerHTML =
       '<div class="gen-short-line" data-url="' + escapeHtml(shortUrl) + '">' + e1 + '  ' + escapeHtml(shortUrl) + '</div>' +
-<br><br>
       '<div class="gen-short-line" data-url="' + escapeHtml(smartUrl) + '">' + e2 + '  ' + escapeHtml(smartUrl) + '</div>';
   }
 
