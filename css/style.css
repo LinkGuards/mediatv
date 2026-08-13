@@ -280,14 +280,14 @@ input {
 .gen-short-results {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 18px;
   margin-bottom: 14px;
 }
 .gen-short-line {
   display: flex;
   align-items: center;
   gap: 0;
-  padding: 12px 16px;
+  padding: 10px 14px;
   background: var(--input-bg);
   border: 1px solid var(--card-border);
   border-radius: var(--radius-input);
