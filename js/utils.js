@@ -36,6 +36,104 @@ export function extractFilenameFromUrl(input) {
   return decodeURIComponent(last.split('?')[0].split('#')[0]);
 }
 
+/* ────────────────────────────────────────────────────────────
+   CDN Detection & Path Extraction
+   ──────────────────────────────────────────────────────────── */
+
+/**
+ * Daftar CDN yang dikenal (key dipakai di k-value).
+ * Urutan di sini HANYA untuk definisi; urutan fallback
+ * saat load ditentukan oleh cdn-loader.js.
+ */
+export const KNOWN_CDNS = [
+  { key: 'slicedrive', name: 'Slicedrive', base: 'https://cdn.slicedrive.com' },
+  { key: 'videy',      name: 'Videy',      base: 'https://cdn2.videy.co' },
+  { key: 'aceimg',     name: 'Aceimg',     base: 'https://cdn.aceimg.com' },
+  { key: 'xxfollow',   name: 'Xxfollow',   base: 'https://www.xxxfollow.com' },
+  { key: 'xfree',      name: 'Xfree',      base: 'https://cdn.xfree.com' }
+];
+
+/**
+ * detectCdn(url) — deteksi CDN dari sebuah URL.
+ * @returns {object|null} CDN object {key,name,base} atau null jika tidak cocok
+ */
+export function detectCdn(input) {
+  if (!input || typeof input !== 'string') return null;
+  var hostname = '';
+  try {
+    hostname = new URL(input).hostname.toLowerCase();
+  } catch (e) {
+    /* input mungkin path relatif → coba match by base URL substring */
+    var lower = input.toLowerCase();
+    for (var i = 0; i < KNOWN_CDNS.length; i++) {
+      if (lower.indexOf(KNOWN_CDNS[i].base.toLowerCase()) !== -1) {
+        return KNOWN_CDNS[i];
+      }
+    }
+    return null;
+  }
+  for (var j = 0; j < KNOWN_CDNS.length; j++) {
+    var cdnHost = '';
+    try { cdnHost = new URL(KNOWN_CDNS[j].base).hostname.toLowerCase(); }
+    catch (e2) { continue; }
+    if (cdnHost === hostname) return KNOWN_CDNS[j];
+  }
+  return null;
+}
+
+/**
+ * extractPathFromUrl(url, cdnBase) — ambil path relatif terhadap cdnBase.
+ * Contoh:
+ *   ('https://www.xxxfollow.com/media/fans/post_public/0/947/548197.mp4',
+ *    'https://www.xxxfollow.com')
+ *     → 'media/fans/post_public/0/947/548197.mp4'
+ *
+ *   ('https://cdn.slicedrive.com/voDWqx8K1.mp4',
+ *    'https://cdn.slicedrive.com')
+ *     → 'voDWqx8K1.mp4'
+ */
+export function extractPathFromUrl(input, cdnBase) {
+  if (!input || typeof input !== 'string') return '';
+  if (!cdnBase) {
+    /* Fallback: ambil path setelah hostname */
+    try {
+      var u = new URL(input);
+      var p = u.pathname.replace(/^\/+/, '');
+      return decodeURIComponent(p);
+    } catch (e) {
+      return '';
+    }
+  }
+  var base = cdnBase.replace(/\/+$/, '');
+  /* Coba parse sebagai URL absolut */
+  try {
+    var url = new URL(input);
+    var baseUrl;
+    try { baseUrl = new URL(cdnBase); } catch (e) { return ''; }
+    if (url.hostname.toLowerCase() === baseUrl.hostname.toLowerCase()) {
+      var path = url.pathname.replace(/^\/+/, '');
+      return decodeURIComponent(path);
+    }
+    /* Host tidak cocok → kembalikan path relatif apa adanya */
+    return decodeURIComponent(url.pathname.replace(/^\/+/, ''));
+  } catch (e2) {
+    /* Input bukan URL absolut → anggap path relatif, trim leading slash */
+    return input.replace(/^\/+/, '');
+  }
+}
+
+/**
+ * getFilenameFromPath(path) — ambil segment terakhir dari sebuah path
+ * sebagai filename untuk display.
+ */
+export function getFilenameFromPath(path) {
+  if (!path || typeof path !== 'string') return '';
+  var clean = path.split('?')[0].split('#')[0];
+  var parts = clean.split('/').filter(Boolean);
+  if (parts.length === 0) return '';
+  return decodeURIComponent(parts[parts.length - 1]);
+}
+
 /* ---- base64url encode / decode ---- */
 
 function btoURLSafe(b64) {
@@ -48,7 +146,27 @@ function fromURLSafe(b64url) {
   return s;
 }
 
-export function generateKValue(realFilename) {
+/**
+ * generateKValue — encode filename (+ optional source URL) ke base64.
+ *
+ * Format LAMA (original, backward compat):
+ *   filename|rand10|rand6
+ *
+ * Format V2 (cdnKey + cdnPath, backward compat):
+ *   filename|rand10|rand6|cdnKey|cdnRelativePath
+ *
+ * Format V3 (sourceUrl — RECOMMENDED, paling robust):
+ *   filename|rand10|rand6|sourceUrl
+ *
+ * - filename: nama file display (segment terakhir), mis. "548197.mp4"
+ * - sourceUrl: URL LENGKAP file video, mis.
+ *   "https://www.xxxfollow.com/media/fans/post_public/0/947/548197.mp4"
+ *
+ * Jika sourceUrl diberikan → format V3 dipakai (prioritas tertinggi).
+ * Jika cdnKey + cdnRelativePath diberikan (tanpa sourceUrl) → format V2.
+ * Jika keduanya kosong → format lama (coba semua CDN dengan filename).
+ */
+export function generateKValue(realFilename, sourceUrl, cdnKey, cdnRelativePath) {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!';
   let rand10 = '';
   for (let i = 0; i < 10; i++) {
@@ -58,7 +176,14 @@ export function generateKValue(realFilename) {
   for (let i = 0; i < 6; i++) {
     rand6 += chars.charAt(Math.floor(Math.random() * chars.length));
   }
-  const raw = realFilename + '|' + rand10 + '|' + rand6;
+  var raw = realFilename + '|' + rand10 + '|' + rand6;
+  if (sourceUrl) {
+    /* Format V3 — sourceUrl penuh */
+    raw += '|' + sourceUrl;
+  } else if (cdnKey && cdnRelativePath) {
+    /* Format V2 — cdnKey + cdnRelativePath */
+    raw += '|' + cdnKey + '|' + cdnRelativePath;
+  }
   return btoa(raw);
 }
 
@@ -84,8 +209,8 @@ export function slugToK(slug) {
   }
 }
 
-export function generateSmartlinkKValue(idUrl, otherUrl) {
-  var raw = 'SMARTLINK|' + idUrl + '|' + otherUrl;
+export function generateSmartlinkKValue(url) {
+  var raw = 'SMARTLINK|' + url;
   return btoa(raw);
 }
 
@@ -99,14 +224,36 @@ export function decodeKValue(k) {
     const first = parts[0];
     if (!first) return { filename: null };
 
-    /* Cek format smartlink: SMARTLINK|id_url|other_url */
-    if (first === 'SMARTLINK' && parts.length >= 3 && parts[1] && parts[2]) {
-      return { type: 'smartlink', idUrl: parts[1], otherUrl: parts[2] };
+    /* Cek format smartlink: SMARTLINK|url */
+    if (first === 'SMARTLINK' && parts.length >= 2 && parts[1]) {
+      /* Backward compat: old format 3 parts (shopee|omg), new format 2 parts (url) */
+      var smartUrl = parts.length >= 3 ? parts[2] : parts[1];
+      return { type: 'smartlink', url: smartUrl };
     }
 
     /* Validasi: harus terlihat seperti filename video */
     if (!first.includes('.')) return { filename: null };
     if (first.length < 5 || first.length > 200) return { filename: null };
+
+    /* Format V3: filename|rand10|rand6|sourceUrl
+       Deteksi: parts.length === 4 DAN parts[3] mulai dengan http:// atau https:// */
+    if (parts.length === 4 && parts[3] && /^https?:\/\//i.test(parts[3])) {
+      return {
+        filename: first,
+        sourceUrl: parts[3]
+      };
+    }
+
+    /* Format V2: filename|rand10|rand6|cdnKey|cdnRelativePath */
+    if (parts.length >= 5 && parts[3] && parts[4]) {
+      return {
+        filename: first,
+        cdnKey: parts[3],
+        cdnPath: parts[4]
+      };
+    }
+
+    /* Format lama: filename|rand10|rand6 */
     return { filename: first };
   } catch {
     return { filename: null };
@@ -193,14 +340,16 @@ export function showToast(msg, isError) {
     clearTimeout(toastTimer);
     toastTimer = null;
   }
+  el.classList.remove('err-toast');
   const iconClass = isError ? 'err' : 'ok';
   const iconName = isError ? 'fa-circle-xmark' : 'fa-circle-check';
   el.innerHTML = '<i class="fa-solid ' + iconName + ' ' + iconClass + '"></i>' + escapeHtml(msg);
+  if (isError) el.classList.add('err-toast');
   el.classList.add('show');
   toastTimer = setTimeout(function() {
-    el.classList.remove('show');
+    el.classList.remove('show', 'err-toast');
     toastTimer = null;
-  }, 2500);
+  }, 3000);
 }
 
 export function copyText(text, btnElement) {

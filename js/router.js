@@ -1,5 +1,5 @@
-import { extractSlugFromPath, slugToK, decodeKValue } from './utils.js';
-import { ShortStore } from './storage.js';
+import { extractSlugFromPath, slugToK, decodeKValue } from './utils.js?v=41';
+import { ShortStore } from './storage.js?v=41';
 
 export function getRoute() {
   var stored = sessionStorage.getItem('spa_redirect');
@@ -25,14 +25,22 @@ export function getRoute() {
   var kValue = null;
   var isShortRedirect = false;
   var shortSlug = null;
+  var isSafelink = false;
+  var safelinkSlug = null;
 
-  /* Method 1: ?k= query param (player link langsung) */
-  if (params.has('k')) {
+  /* Method 0: ?vid=slug — halaman safelink interstitial */
+  if (params.has('vid')) {
+    isSafelink = true;
+    safelinkSlug = params.get('vid');
+  }
+
+  /* Method 1: ?k= query param (player link — dari safelink continue) */
+  if (!isSafelink && params.has('k')) {
     kValue = params.get('k');
   }
 
   /* Method 2: path-based (shortlink) */
-  if (!kValue && path && path !== '/') {
+  if (!isSafelink && !kValue && path && path !== '/') {
     var slug = extractSlugFromPath(path);
     if (slug && slug.length >= 6) {
       shortSlug = slug;
@@ -66,8 +74,10 @@ export function getRoute() {
     params: params,
     kValue: kValue,
     shortSlug: shortSlug,
-    isGenerator: !kValue && !isShortRedirect,
-    isPlayer: !!kValue && !isShortRedirect,
+    isSafelink: isSafelink,
+    safelinkSlug: safelinkSlug,
+    isGenerator: !isSafelink && !kValue && !isShortRedirect,
+    isPlayer: !!kValue && !isShortRedirect && !isSafelink,
     isShortRedirect: isShortRedirect
   };
 }

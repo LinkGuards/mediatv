@@ -3,8 +3,8 @@
    Mendukung: cPanel (MySQL via PHP), JSONBin.io
    ──────────────────────────────────────────────── */
 
-import { JsonBinAdapter } from './jsonbin-adapter.js';
-import { RestApiAdapter } from './rest-adapter.js';
+import { JsonBinAdapter } from './jsonbin-adapter.js?v=38';
+import { RestApiAdapter } from './rest-adapter.js?v=38';
 
 var _adapter = null;
 var _config = null;
@@ -56,7 +56,7 @@ export async function initDb() {
 
   /* 1. Coba fetch db-config.json dari server */
   try {
-    var res = await fetch(CONFIG_FILE + '?v=9');
+    var res = await fetch(CONFIG_FILE + '?v=11');
     if (res.ok) {
       var config = await res.json();
       if (config && config.type) {

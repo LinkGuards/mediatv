@@ -3,17 +3,20 @@ import {
   getProtocol,
   getRandomDomain,
   extractFilenameFromUrl,
+  detectCdn,
+  extractPathFromUrl,
   generateKValue,
   generateSmartlinkKValue,
   generateRandomFilename,
   generateShortId,
+  decodeKValue,
   escapeHtml,
   formatTimeAgo,
   showToast,
   copyText
-} from './utils.js';
-import { isDbReady, getDb, getDomains } from './db/index.js';
-import History, { ShortStore } from './storage.js';
+} from './utils.js?v=41';
+import { isDbReady, getDb, getDomains } from './db/index.js?v=41';
+import History, { ShortStore } from './storage.js?v=41';
 
 export function renderGenerator(container) {
   var domain = getDomain();
@@ -53,6 +56,7 @@ export function renderGenerator(container) {
         dbStatusHtml +
       '</div>' +
       multiDomainHtml +
+      '<button class="btn-clear-cache" id="btn-clear-cache"><i class="fa-solid fa-broom"></i> Clear Cache</button>' +
     '</div>' +
     '<div class="gen-section">' +
       '<div class="gen-card">' +
@@ -66,18 +70,19 @@ export function renderGenerator(container) {
             '<i class="fa-solid fa-wand-magic-sparkles"></i> Generate' +
           '</button>' +
         '</div>' +
+        '<div class="gen-cdn-tags">' +
+          '<span class="gen-cdn-tag primary" data-cdn="https://cdn.slicedrive.com/voDWqx8K1.mp4">Primary: Slicedrive</span>' +
+          '<span class="gen-cdn-tag fallback" data-cdn="https://cdn2.videy.co/spedEuuF1.mp4">Videy</span>' +
+          '<span class="gen-cdn-tag fallback" data-cdn="https://cdn.aceimg.com/YXJZMWePL.mp4">Aceimg</span>' +
+          '<span class="gen-cdn-tag fallback" data-cdn="https://www.xxxfollow.com/media/fans/post_public/0/947/548197.mp4">Xxfollow</span>' +
+          '<span class="gen-cdn-tag fallback" data-cdn="https://cdn.xfree.com/xfree-prod/4/f/7/4f7fc72e-24a0-411a-8abc-c82098507d12/full.mp4">Xfree</span>' +
+        '</div>' +
         '<div class="gen-detected" id="gen-detected">' +
           '<i class="fa-solid fa-circle-check"></i>' +
           '<span>Filename:</span>' +
           '<span class="filename" id="gen-detected-name"></span>' +
         '</div>' +
-        '<div class="gen-cdn-tags">' +
-          '<span class="gen-cdn-tag primary">Primary: Slicedrive</span>' +
-          '<span class="gen-cdn-tag fallback">Videy</span>' +
-          '<span class="gen-cdn-tag fallback">Aceimg</span>' +
-          '<span class="gen-cdn-tag fallback">Xxfollow</span>' +
-          '<span class="gen-cdn-tag fallback">Xfree</span>' +
-        '</div>' +
+        '<div class="gen-cdn-detected" id="gen-cdn-detected"></div>' +
         '<div class="gen-opt-row">' +
           '<label class="gen-ext-toggle">' +
             '<input type="checkbox" id="gen-ext-check" checked>' +
@@ -113,6 +118,26 @@ export function renderGenerator(container) {
   var extCheck = document.getElementById('gen-ext-check');
   var historySection = document.getElementById('gen-history-section');
 
+  /* ---- Clear cache / cookie ---- */
+  var clearCacheBtn = document.getElementById('btn-clear-cache');
+  if (clearCacheBtn) {
+    clearCacheBtn.addEventListener('click', function() {
+      try { localStorage.clear(); } catch(e) {}
+      try { sessionStorage.clear(); } catch(e) {}
+      showToast('Cache & cookie berhasil dihapus! Refresh halaman untuk efek penuh.', false);
+    });
+  }
+
+  /* ---- CDN tag auto-fill ---- */
+  container.querySelectorAll('.gen-cdn-tag[data-cdn]').forEach(function(tag) {
+    tag.addEventListener('click', function() {
+      var cdnBase = tag.getAttribute('data-cdn');
+      urlInput.value = cdnBase;
+      urlInput.focus();
+      urlInput.dispatchEvent(new Event('input'));
+    });
+  });
+
   var EMOJIS = ['\u{1F449}','\u27A1\uFE0F','\u{1F517}','\u25B6\uFE0F','\u{1F3A5}','\u{1F3AC}','\u{1F4F9}','\u{1F4FA}','\u{1F39E}\uFE0F','\u{1F310}','\u{1F4F2}','\u{1F4F1}','\u{1F680}','\u2728','\u{1F4A5}','\u{1F525}','\u{1F3AF}','\u{1F534}','\u{1F519}','\u{1F4AB}','\u2611\uFE0F','\u2705','\u{1F51E}','\u{1F4AF}','\u{1F440}'];
   function pickEmoji() { return EMOJIS[Math.floor(Math.random() * EMOJIS.length)]; }
 
@@ -147,6 +172,7 @@ export function renderGenerator(container) {
   urlInput.addEventListener('input', function() {
     var val = urlInput.value.trim();
     var filename = extractFilenameFromUrl(val);
+    var cdnDetectedEl = document.getElementById('gen-cdn-detected');
     if (filename) {
       currentFilename = filename;
       detectedName.textContent = filename;
@@ -154,6 +180,20 @@ export function renderGenerator(container) {
     } else {
       currentFilename = '';
       detectedBar.classList.remove('visible');
+    }
+    /* Tampilkan badge CDN sumber yang terdeteksi */
+    if (cdnDetectedEl) {
+      var cdn = detectCdn(val);
+      if (cdn && filename) {
+        cdnDetectedEl.innerHTML =
+          '<i class="fa-solid fa-server" style="color:var(--accent-blue)"></i>' +
+          '<span>Source CDN:</span>' +
+          '<strong>' + escapeHtml(cdn.name) + '</strong>';
+        cdnDetectedEl.classList.add('visible');
+      } else {
+        cdnDetectedEl.classList.remove('visible');
+        cdnDetectedEl.innerHTML = '';
+      }
     }
   });
 
@@ -215,8 +255,29 @@ export function renderGenerator(container) {
       showToast('Tidak dapat mendeteksi filename dari URL', true);
       return;
     }
+
+    /* Simpan sourceUrl ASLI dari input — ini akan di-encode ke k-value
+       (format V3) sehingga player bisa langsung akses URL lengkap.
+       Cocok untuk xxfollow/xfree yang punya path multi-segment. */
+    var sourceUrl = '';
+    try {
+      /* Validasi: pastikan URL valid & punya protocol */
+      var testUrl = new URL(val);
+      if (testUrl && (testUrl.protocol === 'http:' || testUrl.protocol === 'https:')) {
+        sourceUrl = testUrl.href;
+      }
+    } catch (e) {
+      /* Input bukan URL absolut — coba tambah https:// */
+      try {
+        var testUrl2 = new URL('https://' + val);
+        if (testUrl2) sourceUrl = testUrl2.href;
+      } catch (e2) {
+        /* Bukan URL sama sekali — biarkan sourceUrl kosong */
+      }
+    }
+
     currentFilename = filename;
-    currentKValue = generateKValue(filename);
+    currentKValue = generateKValue(filename, sourceUrl);
 
     /* Random 8-char ID untuk shortlink PLAYER */
     currentShortId = generateShortId(8);
@@ -226,17 +287,22 @@ export function renderGenerator(container) {
     /* Simpan ke localStorage */
     ShortStore.set(currentShortId, currentKValue);
 
-    /* Smartlink k-value */
+    /* Smartlink k-value (1 URL, tanpa geo) */
     var smartKValue = generateSmartlinkKValue(
-      'https://s.shopee.co.id/6AkADd2D2d',
-      'https://omg10.com/4/10180725'
+      'https://omg10.com/4/10410353'
     );
     ShortStore.set(currentSmartId, smartKValue);
 
-    /* Player Link (pakai random filename + random domain + ?k=) — untuk DB & history */
-    var fakeName = generateRandomFilename();
-    var playerDomain = getRandomDomain(domains);
-    var playerUrl = protocol + '://' + playerDomain + '/' + fakeName + '?k=' + currentKValue;
+    /* Player Link — simpan URL ASLI sebagai playerUrl agar:
+       1. History re-generation bisa pakai URL asli (bukan fake URL)
+       2. DB lookup bisa fallback ke URL asli bila k-value format lama */
+    var playerUrl = sourceUrl || val;
+    if (!playerUrl.startsWith('http')) {
+      /* Fallback: pakai fake URL bila sourceUrl kosong */
+      var fakeName = generateRandomFilename();
+      var playerDomain = getRandomDomain(domains);
+      playerUrl = protocol + '://' + playerDomain + '/' + fakeName + '?k=' + currentKValue;
+    }
 
     /* Shortlink Player */
     var shortUrl = getShortUrl(currentShortId);
@@ -254,11 +320,129 @@ export function renderGenerator(container) {
     if (isDbReady()) {
       try {
         var db = getDb();
-        await db.createLink(currentShortId, currentKValue, playerUrl, shortUrl);
-        await db.createLink(currentSmartId, smartKValue, '', smartUrl);
+
+        /* === STEP 1: Create PLAYER link === */
+        var playerResult = await db.createLink(currentShortId, currentKValue, playerUrl, shortUrl);
+        console.log('[Generator] Player createLink result:', playerResult);
+
+        /* Determine player code (new or existing if duplicate) */
+        var playerCode = currentShortId;
+        var playerDisplayPlayerUrl = playerUrl;
+        var isPlayerDuplicate = false;
+
+        if (playerResult && playerResult.duplicate) {
+          playerCode = playerResult.code || currentShortId;
+          playerDisplayPlayerUrl = playerResult.player_url || playerUrl;
+          isPlayerDuplicate = true;
+          console.log('[Generator] Player duplicate detected, using existing code:', playerCode);
+        } else {
+          console.log('[Generator] Player new entry created, code:', playerCode);
+        }
+
+        /* Save player k-value to ShortStore (BOTH codes for safety) */
+        ShortStore.set(playerCode, currentKValue);
+        if (playerCode !== currentShortId) {
+          ShortStore.set(currentShortId, currentKValue);
+        }
+
+        /* === STEP 2: Create SMARTLINK link (ALWAYS, even if player is duplicate) === */
+        var smartResult = await db.createLink(currentSmartId, smartKValue, '', smartUrl);
+        console.log('[Generator] Smartlink createLink result:', smartResult);
+
+        var smartCode = currentSmartId;
+        var isSmartDuplicate = false;
+
+        if (smartResult && smartResult.duplicate) {
+          smartCode = smartResult.code || currentSmartId;
+          isSmartDuplicate = true;
+          console.log('[Generator] Smartlink duplicate detected, using existing code:', smartCode);
+        } else {
+          console.log('[Generator] Smartlink new entry created, code:', smartCode);
+        }
+
+        /* Save smartlink k-value to ShortStore (BOTH codes for safety) */
+        ShortStore.set(smartCode, smartKValue);
+        if (smartCode !== currentSmartId) {
+          ShortStore.set(currentSmartId, smartKValue);
+        }
+
+        /* === STEP 3: Build shortlink URLs with correct codes === */
+        var finalPlayerUrl = getShortUrl(playerCode);
+        var finalSmartUrl = getShortUrl(smartCode);
+        console.log('[Generator] Final player URL:', finalPlayerUrl);
+        console.log('[Generator] Final smartlink URL:', finalSmartUrl);
+
+        /* === STEP 4: Verify entries exist in DB === */
+        var playerVerified = false;
+        var smartVerified = false;
+        try {
+          var verifyPlayer = await db.getLinkByCode(playerCode);
+          if (verifyPlayer && verifyPlayer.url) {
+            console.log('[Generator] ✓ Player verified in DB, url length:', verifyPlayer.url.length);
+            playerVerified = true;
+          } else {
+            console.error('[Generator] ✗ Player NOT found in DB! Trying to re-create...');
+            /* Try to re-create with current code */
+            await db.createLink(playerCode, currentKValue, playerUrl, finalPlayerUrl);
+            ShortStore.set(playerCode, currentKValue);
+            playerVerified = true;
+          }
+        } catch (verifyErr) {
+          console.warn('[Generator] Player verify failed:', verifyErr);
+        }
+
+        try {
+          var verifySmart = await db.getLinkByCode(smartCode);
+          if (verifySmart && verifySmart.url) {
+            console.log('[Generator] ✓ Smartlink verified in DB, url length:', verifySmart.url.length);
+            smartVerified = true;
+          } else {
+            console.error('[Generator] ✗ Smartlink NOT found in DB! Trying to re-create...');
+            await db.createLink(smartCode, smartKValue, '', finalSmartUrl);
+            ShortStore.set(smartCode, smartKValue);
+            smartVerified = true;
+          }
+        } catch (verifyErr) {
+          console.warn('[Generator] Smartlink verify failed:', verifyErr);
+        }
+
+        /* === STEP 5: Display results === */
+        var e1 = pickEmoji();
+        var e2 = pickEmoji();
+        shortResults.innerHTML =
+          '<div class="gen-short-line" data-url="' + escapeHtml(finalPlayerUrl) + '">' + e1 + '  ' + escapeHtml(finalPlayerUrl) + '</div>' +
+          '<div class="gen-short-line" data-url="' + escapeHtml(finalSmartUrl) + '">' + e2 + '  ' + escapeHtml(finalSmartUrl) + '</div>';
+
+        outputSection.classList.add('visible');
+        setTimeout(function() {
+          outputSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 100);
+
+        History.add(filename, finalPlayerUrl, playerDisplayPlayerUrl);
+        renderHistory();
+
+        /* === STEP 6: Notification === */
+        if (isPlayerDuplicate && isSmartDuplicate) {
+          showToast('✓ Video sudah pernah di-generate. Shortlink yang sama ditampilkan kembali.', false);
+        } else if (isPlayerDuplicate) {
+          showToast('✓ Player duplicate! Shortlink sebelumnya ditampilkan kembali.', false);
+        } else if (playerVerified && smartVerified) {
+          showToast('✓ Shortlink berhasil dibuat & tersimpan ke DB!', false);
+        } else {
+          showToast('⚠ Shortlink dibuat tapi ada issue verifikasi. Cek console.', true);
+        }
+        return;
       } catch (e) {
+        console.error('[Generator] DB error:', e);
+        /* Fallback: still save to ShortStore so shortlink works in this browser */
+        ShortStore.set(currentShortId, currentKValue);
+        ShortStore.set(currentSmartId, smartKValue);
         showToast('Gagal simpan ke DB, shortlink hanya berlaku di browser ini', true);
       }
+    } else {
+      console.warn('[Generator] DB not ready, shortlink only valid in this browser');
+      ShortStore.set(currentShortId, currentKValue);
+      ShortStore.set(currentSmartId, smartKValue);
     }
 
     outputSection.classList.add('visible');
